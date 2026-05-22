@@ -773,10 +773,23 @@ function abrirModal(id){
   // Calendly ou placeholder
   const cw=document.getElementById('modal-calendly-wrap');
   if(s.calendly&&s.calendly.startsWith('http')){
-    document.getElementById('modal-agendar-sub').textContent='Selecione o dia e o horário disponível abaixo. Você receberá uma confirmação automática.';
+    document.getElementById('modal-agendar-sub').textContent='Escolha o dia e horário abaixo. Após agendar, confirme pelo WhatsApp para garantir sua vaga.';
+    const wppMsgServico = encodeURIComponent('Oi Isa! Acabei de agendar *' + s.nome + '* pelo site. Pode confirmar minha vaga? 💕');
+    const wppLinkServico = 'https://wa.me/' + (getCfg().wpp||'5511999999999') + '?text=' + wppMsgServico;
     cw.innerHTML=`
       <div class="calendly-wrap">
         <iframe src="${esc(s.calendly)}?embed_type=Inline&hide_event_type_details=1&hide_gdpr_banner=1" title="Agendar ${esc(s.nome)}"></iframe>
+      </div>
+      <div style="margin-top:16px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:20px;text-align:center;">
+        <p style="font-size:13px;color:#166534;margin-bottom:14px;line-height:1.6;">
+          ✅ Após escolher seu horário acima,<br>confirme sua vaga com a Isa:
+        </p>
+        <a href="${wppLinkServico}" target="_blank" rel="noopener"
+          style="display:inline-flex;align-items:center;gap:9px;background:#25D366;color:#fff;padding:13px 22px;border-radius:30px;font-size:14px;font-weight:500;text-decoration:none;">
+          <svg width="18" height="18" fill="#fff" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          Confirmar pelo WhatsApp
+        </a>
+        <p style="font-size:11px;color:#166534;margin-top:10px;opacity:.7;">Mensagem já preenchida com o serviço 💕</p>
       </div>`;
   } else {
     document.getElementById('modal-agendar-sub').textContent='O calendário de agendamento online será exibido aqui assim que configurado.';
@@ -1147,13 +1160,105 @@ window.addEventListener("message", function(e) {
   }
 });
 
-// Guarda serviço aberto no modal
+// Guarda serviço aberto no modal + observa confirmação via MutationObserver
 const _origAbrirModal = abrirModal;
 abrirModal = function(id) {
   const s = getServicos().find(x => x.id === id);
   if (s) servicoAtualAberto = s.nome;
   _origAbrirModal(id);
+  // Começa a observar o iframe do Calendly após abrir
+  setTimeout(observarCalendly, 1500);
 };
+
+function observarCalendly() {
+  const cw = document.getElementById("modal-calendly-wrap");
+  if (!cw) return;
+  const iframe = cw.querySelector("iframe");
+  if (!iframe) return;
+
+  // Observa mudanças na altura do iframe — quando agendado, o Calendly
+  // muda o conteúdo e o iframe fica com altura diferente
+  let alturaAnterior = iframe.offsetHeight;
+  let checando = false;
+
+  // Método 1: postMessage (funciona quando mesmo domínio ou Calendly permite)
+  // já está acima no window.addEventListener
+
+  // Método 2: polling — verifica URL do iframe a cada 800ms
+  // Quando agendado, o Calendly muda o título interno
+  const intervalo = setInterval(() => {
+    if (checando) return;
+    checando = true;
+
+    try {
+      // Tenta ler o título do iframe (só funciona mesmo domínio, mas tenta)
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      const titulo = doc.title || "";
+      if (titulo.toLowerCase().includes("agendado") ||
+          titulo.toLowerCase().includes("scheduled") ||
+          titulo.toLowerCase().includes("confirmed")) {
+        clearInterval(intervalo);
+        mostrarConfirmacaoWpp();
+      }
+    } catch(err) {
+      // cross-origin — usa fallback de altura
+    }
+
+    // Fallback: detecta mudança de altura do iframe
+    const alturaAtual = iframe.offsetHeight;
+    if (alturaAtual !== alturaAnterior && alturaAtual < 200) {
+      clearInterval(intervalo);
+      mostrarConfirmacaoWpp();
+    }
+    alturaAnterior = alturaAtual;
+    checando = false;
+  }, 800);
+
+  // Para de observar se fechar o modal
+  const btnClose = document.getElementById("modal-close");
+  if (btnClose) {
+    btnClose.addEventListener("click", () => clearInterval(intervalo), {once:true});
+  }
+}
+
+function mostrarConfirmacaoWpp() {
+  const cfg = getCfg();
+  const msg = "Oi Isa! Acabei de agendar *" + servicoAtualAberto + "* pelo site. Pode confirmar minha vaga? 💕";
+  const link = "https://wa.me/" + cfg.wpp + "?text=" + encodeURIComponent(msg);
+
+  const cw = document.getElementById("modal-calendly-wrap");
+  if (!cw) return;
+
+  // Só mostra se ainda não tiver mostrado
+  if (cw.querySelector(".confirmacao-wpp")) return;
+
+  const div = document.createElement("div");
+  div.className = "confirmacao-wpp";
+  div.style.cssText = "background:#f0fdf4;border:1.5px solid #86efac;border-radius:12px;padding:28px 20px;text-align:center;margin-top:16px;";
+  div.innerHTML = `
+    <div style="font-size:40px;margin-bottom:12px;">🎉</div>
+    <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-style:italic;color:#166534;margin-bottom:8px;">Horário agendado!</div>
+    <p style="font-size:13px;color:#166534;margin-bottom:20px;line-height:1.6;">
+      Você receberá um e-mail de confirmação.<br>
+      Agora clique abaixo para confirmar sua vaga com a Isa:
+    </p>
+    <a href="${link}" target="_blank" rel="noopener"
+      style="display:inline-flex;align-items:center;gap:9px;background:#25D366;color:#fff;padding:14px 24px;border-radius:30px;font-size:14px;font-weight:500;text-decoration:none;">
+      <svg width="18" height="18" fill="#fff" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      Confirmar pelo WhatsApp
+    </a>
+    <p style="font-size:11px;color:#166534;margin-top:12px;opacity:.7;">Mensagem já preenchida com o serviço agendado ✓</p>
+  `;
+
+  cw.appendChild(div);
+
+  // Scroll até a confirmação
+  setTimeout(() => div.scrollIntoView({behavior:"smooth", block:"center"}), 200);
+
+  // Esconde botão wpp padrão
+  const bw = document.getElementById("modal-wpp-link");
+  if (bw) bw.style.display = "none";
+}
 
 // ════════════════════════════════
 // INIT
